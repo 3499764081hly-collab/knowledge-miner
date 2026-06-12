@@ -105,7 +105,7 @@ python -m venv .venv
         "KM_DATA_SOURCES": "claude,hermes",
         "KM_OUTPUT_PATH": "/Users/Zhuanz1/Desktop/AI-Knowledge-Base/knowledge-base.json",
         "KM_FEISHU_ENABLED": "true",
-        "KM_FEISHU_DOC_URL": "https://my.feishu.cn/wiki/B1x9wy7xhieK3UkrclXccN16nsc?fromScene=spaceOverview"
+        "KM_FEISHU_DOC_URL": "https://your-domain.feishu.cn/wiki/your-wiki-token"
       }
     }
   }
@@ -141,6 +141,17 @@ python -m venv .venv
   }
 }
 ```
+
+### 飞书云文档授权
+
+飞书云文档同步依赖用户本机的 `lark-cli`。公开使用时，每个用户都需要授权自己的飞书账号，并把自己的知识库文档 URL 配到 `KM_FEISHU_DOC_URL`。
+
+```bash
+lark-cli auth status
+lark-cli auth login --scope "docx:document:readonly docx:document:write_only wiki:node:read wiki:space:read offline_access"
+```
+
+授权成功后，MCP 才能通过 `record_knowledge` 把内容写入用户自己的飞书云文档。当前版本不会把作者的飞书文档作为默认目标。
 
 ## MCP 工具
 
