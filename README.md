@@ -25,12 +25,25 @@ Cursor、Windsurf 专用日志解析和定时任务是后续扩展方向，目�
 
 ## 本地开发安装
 
+要求：
+
+- Python 3.10 或更高版本；macOS 系统自带 Python 3.9 不能直接安装本项目
+- 如需飞书云文档同步，需先让 `lark-cli` 在 PATH 中可用，建议使用 Node 版 `@larksuite/cli`
+
 在项目目录安装：
 
 ```bash
 cd /Users/Zhuanz1/Desktop/knowledge-miner
-python -m venv .venv
+python3.11 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
+```
+
+检查版本：
+
+```bash
+.venv/bin/python --version
+command -v lark-cli
+lark-cli --version
 ```
 
 本机当前可直接使用：
@@ -145,6 +158,8 @@ python -m venv .venv
 ### 飞书云文档授权
 
 飞书云文档同步依赖用户本机的 `lark-cli`。公开使用时，每个用户都授权自己的飞书账号，并配置自己的知识库文档 URL；仓库不会内置作者的飞书文档。
+
+注意：`lark-cli` 是外部 CLI，不是本项目的 Python 依赖；请先按飞书 / Lark CLI 的安装方式安装，并确认 `lark-cli --version` 至少为 `1.0.51`。
 
 如果 agent 已接入本 MCP，可以直接走 MCP 工具授权，不需要用户手动记命令：
 
