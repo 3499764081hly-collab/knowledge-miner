@@ -131,3 +131,22 @@ def test_build_mcp_config_json_uses_current_config(monkeypatch, tmp_path) -> Non
         "KM_DATA_SOURCES": "claude",
         "KM_OUTPUT_PATH": str(output_path),
     }
+
+
+def test_build_mcp_config_json_includes_feishu_env(monkeypatch, tmp_path) -> None:
+    command_path = tmp_path / "knowledge-miner"
+    command_path.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", [str(command_path)])
+    config = KnowledgeMinerConfig(
+        output_path=tmp_path / "knowledge-base.json",
+        feishu_enabled=True,
+        feishu_doc_url="https://my.feishu.cn/wiki/example",
+    )
+
+    data = cli_module._build_mcp_config_json(config)
+
+    assert data["mcpServers"]["knowledge-miner"]["env"]["KM_FEISHU_ENABLED"] == "true"
+    assert (
+        data["mcpServers"]["knowledge-miner"]["env"]["KM_FEISHU_DOC_URL"]
+        == "https://my.feishu.cn/wiki/example"
+    )

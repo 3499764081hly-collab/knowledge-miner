@@ -320,7 +320,7 @@ def _run_mcp_smoke_check() -> tuple[bool, str]:
                 tools = await session.list_tools()
 
         tool_names = [tool.name for tool in tools.tools]
-        expected = ["mine_knowledge", "get_knowledge", "get_stats"]
+        expected = ["mine_knowledge", "get_knowledge", "record_knowledge", "get_stats"]
         missing = [name for name in expected if name not in tool_names]
         if missing:
             return False, f"缺少工具: {', '.join(missing)}"
@@ -389,7 +389,7 @@ def _run_mcp_acceptance_check() -> tuple[bool, str]:
                     await session.initialize()
                     tools = await session.list_tools()
                     tool_names = [tool.name for tool in tools.tools]
-                    expected = ["mine_knowledge", "get_knowledge", "get_stats"]
+                    expected = ["mine_knowledge", "get_knowledge", "record_knowledge", "get_stats"]
                     missing = [name for name in expected if name not in tool_names]
                     if missing:
                         return False, f"缺少工具: {', '.join(missing)}"
@@ -459,15 +459,20 @@ def cmd_config(args: argparse.Namespace) -> None:
 
 
 def _build_mcp_config_json(config: KnowledgeMinerConfig) -> dict:
+    env = {
+        "KM_DATA_SOURCES": ",".join(config.data_sources),
+        "KM_OUTPUT_PATH": str(config.output_path),
+    }
+    if config.feishu_enabled:
+        env["KM_FEISHU_ENABLED"] = "true"
+    if config.feishu_doc_url:
+        env["KM_FEISHU_DOC_URL"] = config.feishu_doc_url
     return {
         "mcpServers": {
             "knowledge-miner": {
                 "command": _resolve_command_path(),
                 "args": ["mcp-server"],
-                "env": {
-                    "KM_DATA_SOURCES": ",".join(config.data_sources),
-                    "KM_OUTPUT_PATH": str(config.output_path),
-                },
+                "env": env,
             }
         }
     }

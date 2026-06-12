@@ -22,6 +22,7 @@ CONFIG_FILE_KEYS = {
     "hermes-sessions-dir",
     "output-path",
     "feishu-enabled",
+    "feishu-doc-url",
     "feishu-space-id",
     "feishu-node-token",
     "analysis-granularity",
@@ -57,6 +58,7 @@ class KnowledgeMinerConfig:
 
     # 飞书配置
     feishu_enabled: bool = False
+    feishu_doc_url: str | None = None
     feishu_space_id: str | None = None
     feishu_node_token: str | None = None
 
@@ -146,6 +148,7 @@ class KnowledgeMinerConfig:
             "hermes-sessions-dir": str(self.hermes_sessions_dir),
             "output-path": str(self.output_path),
             "feishu-enabled": self.feishu_enabled,
+            "feishu-doc-url": self.feishu_doc_url,
             "feishu-space-id": self.feishu_space_id,
             "feishu-node-token": self.feishu_node_token,
             "analysis-granularity": self.analysis_granularity,
@@ -204,6 +207,8 @@ def _apply_env_overrides(config: KnowledgeMinerConfig) -> None:
 
     if os.getenv("KM_FEISHU_ENABLED"):
         config.feishu_enabled = _parse_bool_env("KM_FEISHU_ENABLED")
+    if os.getenv("KM_FEISHU_DOC_URL"):
+        config.feishu_doc_url = os.getenv("KM_FEISHU_DOC_URL")
     if os.getenv("KM_FEISHU_SPACE_ID"):
         config.feishu_space_id = os.getenv("KM_FEISHU_SPACE_ID")
     if os.getenv("KM_FEISHU_NODE_TOKEN"):

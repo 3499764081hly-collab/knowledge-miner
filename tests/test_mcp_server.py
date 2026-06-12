@@ -51,6 +51,7 @@ async def test_mcp_lists_expected_tools() -> None:
     assert [tool.name for tool in result.tools] == [
         "mine_knowledge",
         "get_knowledge",
+        "record_knowledge",
         "get_stats",
     ]
     mine_tool = result.tools[0]
@@ -194,3 +195,85 @@ async def test_mcp_get_stats_rejects_unexpected_arguments(tmp_path: Path) -> Non
 
     assert result.isError is True
     assert "不接受任何参数" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_mcp_record_knowledge_without_confirm_write_does_not_write(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "AI-Knowledge-Base" / "knowledge-base.json"
+    set_config(KnowledgeMinerConfig(output_path=output_path))
+
+    result = await call_tool(
+        "record_knowledge",
+        {
+            "record_type": "pitfall",
+            "title": "飞书写入先 dry-run",
+            "summary": "涉及外部文档写入时，默认必须只预览。",
+            "solution": "传 confirm_write=true 才允许写入。",
+            "source_agent": "pytest",
+        },
+    )
+
+    assert result.isError is False
+    assert "未提供 confirm_write=true" in result.content[0].text
+    assert "飞书写入先 dry-run" in result.content[0].text
+    assert not output_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_mcp_record_knowledge_confirm_write_writes_local_ai_schema(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "AI-Knowledge-Base" / "knowledge-base.json"
+    set_config(KnowledgeMinerConfig(output_path=output_path))
+
+    result = await call_tool(
+        "record_knowledge",
+        {
+            "record_type": "pitfall",
+            "title": "飞书写入先 dry-run",
+            "summary": "涉及外部文档写入时，默认必须只预览。",
+            "solution": "传 confirm_write=true 才允许写入。",
+            "source_agent": "pytest",
+            "confirm_write": True,
+        },
+    )
+
+    data = json.loads(output_path.read_text(encoding="utf-8"))
+    assert result.isError is False
+    assert "知识记录已沉淀" in result.content[0].text
+    assert data["agent_knowledge"]["metadata"]["submission_mode"] == "direct_record"
+    assert data["categories"]["bug修复"][0]["summary"] == "涉及外部文档写入时，默认必须只预览。"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "arguments, message",
+    [
+        ({"record_type": "note", "title": "t", "summary": "s"}, "record_type"),
+        ({"record_type": "pitfall", "title": "", "summary": "s"}, "title"),
+        ({"record_type": "pitfall", "title": "t", "summary": ""}, "summary"),
+        ({"record_type": "pitfall", "title": "t", "summary": "s", "tags": [1]}, "tags"),
+        ({"record_type": "pitfall", "title": "t", "summary": "s", "target": "remote"}, "target"),
+        ({"record_type": "pitfall", "title": "t", "summary": "s", "dry_run": "true"}, "dry_run"),
+        (
+            {"record_type": "pitfall", "title": "t", "summary": "s", "confirm_write": "false"},
+            "confirm_write",
+        ),
+        ({"record_type": "pitfall", "title": "t", "summary": "s", "extra": True}, "未知参数"),
+    ],
+)
+async def test_mcp_record_knowledge_rejects_invalid_arguments(
+    tmp_path: Path,
+    arguments: dict,
+    message: str,
+) -> None:
+    output_path = tmp_path / "knowledge-base.json"
+    set_config(KnowledgeMinerConfig(output_path=output_path))
+
+    result = await call_tool("record_knowledge", arguments)
+
+    assert result.isError is True
+    assert message in result.content[0].text
+    assert not output_path.exists()

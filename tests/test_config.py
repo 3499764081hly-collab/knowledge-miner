@@ -22,6 +22,7 @@ def test_config_from_file_normalizes_paths(tmp_path: Path) -> None:
                 "claude-projects-dir": str(tmp_path / "claude"),
                 "hermes-sessions-dir": str(tmp_path / "hermes"),
                 "output-path": str(output_path),
+                "feishu-doc-url": "https://my.feishu.cn/wiki/example",
                 "content-priority": ["pitfalls", " workflows "],
             }
         ),
@@ -34,6 +35,7 @@ def test_config_from_file_normalizes_paths(tmp_path: Path) -> None:
     assert config.claude_projects_dir == tmp_path / "claude"
     assert config.hermes_sessions_dir == tmp_path / "hermes"
     assert config.output_path == output_path
+    assert config.feishu_doc_url == "https://my.feishu.cn/wiki/example"
     assert config.content_priority == ["pitfalls", "workflows"]
 
 
@@ -92,6 +94,7 @@ def test_get_config_applies_env_overrides_to_config_file(
     monkeypatch.setenv("KM_DATA_SOURCES", "hermes")
     monkeypatch.setenv("KM_HERMES_DIR", str(env_hermes))
     monkeypatch.setenv("KM_OUTPUT_PATH", str(env_output))
+    monkeypatch.setenv("KM_FEISHU_DOC_URL", "https://my.feishu.cn/wiki/env-doc")
 
     config = get_config()
 
@@ -99,6 +102,7 @@ def test_get_config_applies_env_overrides_to_config_file(
     assert config.claude_projects_dir == tmp_path / "file-claude"
     assert config.hermes_sessions_dir == env_hermes
     assert config.output_path == env_output
+    assert config.feishu_doc_url == "https://my.feishu.cn/wiki/env-doc"
 
 
 def test_get_config_validates_env_overrides(monkeypatch, tmp_path: Path) -> None:

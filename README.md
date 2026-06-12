@@ -19,9 +19,9 @@
 - 写入前自动备份已有知识库文件
 - 默认预览不写入，真实写入必须显式确认
 - 配置加载会校验数据源、分析粒度、内容优先级、布尔环境变量和输出路径
-- 提供 MCP Server：`mine_knowledge`、`get_knowledge`、`get_stats`
+- 提供 MCP Server：`mine_knowledge`、`get_knowledge`、`record_knowledge`、`get_stats`
 
-Cursor、Windsurf、飞书云文档输出和定时任务是后续扩展方向，目前不是已完成能力。
+Cursor、Windsurf 专用日志解析和定时任务是后续扩展方向，目前不是已完成能力。
 
 ## 本地开发安装
 
@@ -103,7 +103,9 @@ python -m venv .venv
       "args": ["mcp-server"],
       "env": {
         "KM_DATA_SOURCES": "claude,hermes",
-        "KM_OUTPUT_PATH": "/Users/Zhuanz1/Desktop/AI-Knowledge-Base/knowledge-base.json"
+        "KM_OUTPUT_PATH": "/Users/Zhuanz1/Desktop/AI-Knowledge-Base/knowledge-base.json",
+        "KM_FEISHU_ENABLED": "true",
+        "KM_FEISHU_DOC_URL": "https://my.feishu.cn/wiki/B1x9wy7xhieK3UkrclXccN16nsc?fromScene=spaceOverview"
       }
     }
   }
@@ -146,6 +148,7 @@ python -m venv .venv
 | --- | --- | --- |
 | `mine_knowledge` | 从会话中提取知识并预览或写入知识库 | `days`, `source`, `dry_run`, `confirm_write` |
 | `get_knowledge` | 读取已沉淀的知识 | `section` |
+| `record_knowledge` | 让任意 agent 主动提交一条知识；确认后写入本地知识库，并可同步飞书云文档 | `record_type`, `title`, `summary`, `target`, `confirm_write` |
 | `get_stats` | 查看知识库统计 | 无 |
 
 `mine_knowledge` 默认不写入。真实写入必须传：
@@ -165,6 +168,35 @@ python -m venv .venv
   "source": "claude",
   "days": 7,
   "dry_run": true
+}
+```
+
+主动提交一条知识。默认也只预览：
+
+```json
+{
+  "record_type": "pitfall",
+  "title": "写入外部文档前必须 dry-run",
+  "summary": "涉及飞书云文档或本地知识库写入时，默认不应直接修改。",
+  "solution": "先 preview，用户确认后再传 confirm_write=true。",
+  "subcategory": "配置类",
+  "source_agent": "claude-code",
+  "target": "all"
+}
+```
+
+确认写入本地和飞书：
+
+```json
+{
+  "record_type": "pitfall",
+  "title": "写入外部文档前必须 dry-run",
+  "summary": "涉及飞书云文档或本地知识库写入时，默认不应直接修改。",
+  "solution": "先 preview，用户确认后再传 confirm_write=true。",
+  "subcategory": "配置类",
+  "source_agent": "claude-code",
+  "target": "all",
+  "confirm_write": true
 }
 ```
 
@@ -195,6 +227,7 @@ MCP 配置中的 `KM_*` 环境变量会覆盖这个配置文件，适合在不�
   "hermes-sessions-dir": "~/.hermes/sessions",
   "output-path": "/Users/Zhuanz1/Desktop/AI-Knowledge-Base/knowledge-base.json",
   "feishu-enabled": false,
+  "feishu-doc-url": "https://my.feishu.cn/wiki/...",
   "analysis-granularity": "global",
   "content-priority": ["pitfalls", "thinking_patterns", "workflows", "communication_style"],
   "cron-enabled": false,
@@ -210,6 +243,7 @@ knowledge-miner 会读取本机 AI agent 会话目录，例如 `~/.claude/projec
 
 - CLI `mine` 默认只预览，不写入；真实写入必须加 `--yes`
 - MCP `mine_knowledge` 默认只预览，不写入；真实写入必须传 `confirm_write: true`
+- MCP `record_knowledge` 默认只预览，不写入；真实写入本地或飞书也必须传 `confirm_write: true`
 - 接入前可运行 `knowledge-miner doctor --mcp-smoke` 验证 stdio MCP 握手和工具列表
 - 接入前可运行 `knowledge-miner doctor --acceptance` 用临时数据验证 MCP 端到端写入链路
 - 写入已有知识库前会先生成 `.bak` 备份文件
@@ -234,6 +268,7 @@ knowledge-miner 会读取本机 AI agent 会话目录，例如 `~/.claude/projec
 | `KM_HERMES_DIR` | Hermes 会话目录 | `~/.hermes/sessions` |
 | `KM_OUTPUT_PATH` | 知识库输出路径 | 优先使用 `~/Desktop/AI-Knowledge-Base/knowledge-base.json` |
 | `KM_FEISHU_ENABLED` | 是否启用飞书配置字段 | `false` |
+| `KM_FEISHU_DOC_URL` | 飞书云文档 / Wiki 知识库大纲 URL | 空 |
 | `KM_GRANULARITY` | 分析粒度配置字段 | `global` |
 | `KM_PRIORITY` | 内容优先级，逗号分隔 | `pitfalls,thinking_patterns,workflows,communication_style` |
 | `KM_CRON_ENABLED` | 是否启用定时配置字段 | `false` |

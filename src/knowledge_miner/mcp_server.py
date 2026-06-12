@@ -17,7 +17,13 @@ from mcp.types import (
 from knowledge_miner.config import get_config
 from knowledge_miner.miner import mine_knowledge
 from knowledge_miner.output.ai_knowledge_base import extract_agent_view
+from knowledge_miner.output.feishu_doc import FeishuDocWriter
 from knowledge_miner.output.json_writer import JsonWriter
+from knowledge_miner.record import (
+    KnowledgeRecord,
+    record_preview,
+    record_to_knowledge_base,
+)
 
 # 创建 MCP Server 实例
 server = Server("knowledge-miner")
@@ -84,6 +90,70 @@ async def list_tools() -> ListToolsResult:
                 },
             ),
             Tool(
+                name="record_knowledge",
+                description=(
+                    "让任意 agent 主动提交一条知识沉淀。默认只预览；"
+                    "confirm_write=true 后写入本地知识库，并可同步到飞书云文档。"
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "record_type": {
+                            "type": "string",
+                            "description": "知识类型",
+                            "enum": ["pitfall", "thinking_pattern", "workflow"],
+                        },
+                        "title": {
+                            "type": "string",
+                            "description": "短标题",
+                        },
+                        "summary": {
+                            "type": "string",
+                            "description": "知识摘要或复盘内容",
+                        },
+                        "solution": {
+                            "type": "string",
+                            "description": "处理方式；踩坑类建议填写",
+                        },
+                        "context": {
+                            "type": "string",
+                            "description": "触发场景、上下文或示例",
+                        },
+                        "source_agent": {
+                            "type": "string",
+                            "description": "提交该知识的 agent 名称",
+                        },
+                        "subcategory": {
+                            "type": "string",
+                            "description": "飞书大纲子分类，例如 配置类、网络类、Debug 工作流",
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "标签",
+                        },
+                        "target": {
+                            "type": "string",
+                            "enum": ["local", "feishu", "all"],
+                            "default": "all",
+                            "description": "写入目标；all 会写本地，并在配置启用时写飞书",
+                        },
+                        "dry_run": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": "只预览，不写入",
+                        },
+                        "confirm_write": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": "确认写入；未提供 true 时只预览",
+                        },
+                    },
+                    "required": ["record_type", "title", "summary"],
+                    "additionalProperties": False,
+                },
+            ),
+            Tool(
                 name="get_stats",
                 description="查看知识库的统计信息，包括数据源、会话数、消息数等。",
                 inputSchema={
@@ -104,6 +174,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
             return await _handle_mine_knowledge(arguments)
         elif name == "get_knowledge":
             return await _handle_get_knowledge(arguments)
+        elif name == "record_knowledge":
+            return await _handle_record_knowledge(arguments)
         elif name == "get_stats":
             return await _handle_get_stats(arguments)
         else:
@@ -290,6 +362,72 @@ async def _handle_get_stats(arguments: dict[str, Any]) -> CallToolResult:
     )
 
 
+async def _handle_record_knowledge(arguments: dict[str, Any]) -> CallToolResult:
+    """Handle one direct agent-submitted knowledge item."""
+    config = get_config()
+    parsed = _parse_record_arguments(arguments)
+    if isinstance(parsed, CallToolResult):
+        return parsed
+    record, target, dry_run, confirm_write = parsed
+    targets = _resolve_record_targets(target, config)
+    if not targets:
+        return _tool_error("没有可写入目标；请配置本地 output-path 或飞书文档")
+
+    preview = record_preview(record, targets)
+    if "feishu" in targets:
+        doc = config.feishu_doc_url or config.feishu_node_token
+        if not doc:
+            return _tool_error("未配置飞书文档；请设置 KM_FEISHU_DOC_URL")
+        preview["feishu"] = FeishuDocWriter(doc).preview(record)
+
+    if dry_run or not confirm_write:
+        reason = (
+            "dry-run 预览，未写入任何文件或飞书文档"
+            if dry_run
+            else "未提供 confirm_write=true，已返回预览且未写入"
+        )
+        return CallToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=f"{reason}：\n"
+                    f"{json.dumps(preview, indent=2, ensure_ascii=False, default=str)}",
+                )
+            ],
+        )
+
+    local_line = ""
+    feishu_line = ""
+    if "local" in targets:
+        writer = JsonWriter(config.output_path)
+        writer.write(record_to_knowledge_base(record))
+        local_line = f"\n- 本地知识库: {config.output_path}"
+
+    if "feishu" in targets:
+        doc = config.feishu_doc_url or config.feishu_node_token
+        if not doc:
+            return _tool_error("未配置飞书文档；请设置 KM_FEISHU_DOC_URL")
+        result = FeishuDocWriter(doc).write(record)
+        feishu_line = (
+            f"\n- 飞书云文档: {result.doc}"
+            f"\n- 插入位置: {result.heading} ({result.block_id})"
+        )
+
+    return CallToolResult(
+        content=[
+            TextContent(
+                type="text",
+                text=(
+                    "✅ 知识记录已沉淀\n"
+                    f"- 类型: {record.record_type}\n"
+                    f"- 标题: {record.title}"
+                    f"{local_line}{feishu_line}"
+                ),
+            )
+        ],
+    )
+
+
 async def run_server(transport: str = "stdio") -> None:
     """运行 MCP Server"""
     if transport == "stdio":
@@ -329,6 +467,88 @@ def _parse_mine_arguments(
         return _tool_error("参数 confirm_write 必须是布尔值 true 或 false")
 
     return days, source, dry_run, confirm_write
+
+
+def _parse_record_arguments(
+    arguments: dict[str, Any],
+) -> tuple[KnowledgeRecord, str, bool, bool] | CallToolResult:
+    allowed_keys = {
+        "record_type",
+        "title",
+        "summary",
+        "solution",
+        "context",
+        "source_agent",
+        "subcategory",
+        "tags",
+        "target",
+        "dry_run",
+        "confirm_write",
+    }
+    unknown_keys = set(arguments) - allowed_keys
+    if unknown_keys:
+        return _tool_error(f"未知参数: {', '.join(sorted(unknown_keys))}")
+
+    record_type = arguments.get("record_type")
+    if not isinstance(record_type, str) or record_type not in {
+        "pitfall",
+        "thinking_pattern",
+        "workflow",
+    }:
+        return _tool_error("参数 record_type 必须是 pitfall/thinking_pattern/workflow 之一")
+
+    title = arguments.get("title")
+    summary = arguments.get("summary")
+    if not isinstance(title, str) or not title.strip():
+        return _tool_error("参数 title 不能为空")
+    if not isinstance(summary, str) or not summary.strip():
+        return _tool_error("参数 summary 不能为空")
+
+    tags = arguments.get("tags", [])
+    if tags is None:
+        tags = []
+    if not isinstance(tags, list) or any(not isinstance(tag, str) for tag in tags):
+        return _tool_error("参数 tags 必须是字符串数组")
+
+    target = arguments.get("target", "all")
+    if not isinstance(target, str) or target not in {"local", "feishu", "all"}:
+        return _tool_error("参数 target 必须是 local/feishu/all 之一")
+
+    dry_run = arguments.get("dry_run", False)
+    if not isinstance(dry_run, bool):
+        return _tool_error("参数 dry_run 必须是布尔值 true 或 false")
+
+    confirm_write = arguments.get("confirm_write", False)
+    if not isinstance(confirm_write, bool):
+        return _tool_error("参数 confirm_write 必须是布尔值 true 或 false")
+
+    for optional in ("solution", "context", "source_agent", "subcategory"):
+        value = arguments.get(optional)
+        if value is not None and not isinstance(value, str):
+            return _tool_error(f"参数 {optional} 必须是字符串")
+
+    record = KnowledgeRecord(
+        record_type=record_type,
+        title=title,
+        summary=summary,
+        solution=arguments.get("solution"),
+        context=arguments.get("context"),
+        source_agent=arguments.get("source_agent"),
+        subcategory=arguments.get("subcategory"),
+        tags=tags,
+    )
+    return record, target, dry_run, confirm_write
+
+
+def _resolve_record_targets(target: str, config: Any) -> list[str]:
+    if target == "local":
+        return ["local"]
+    if target == "feishu":
+        return ["feishu"]
+    targets = ["local"]
+    if config.feishu_enabled and (config.feishu_doc_url or config.feishu_node_token):
+        targets.append("feishu")
+    return targets
 
 
 def _tool_error(message: str) -> CallToolResult:

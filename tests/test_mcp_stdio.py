@@ -73,6 +73,7 @@ async def test_mcp_stdio_session_lists_tools_and_respects_confirm_write(
     assert [tool.name for tool in tools.tools] == [
         "mine_knowledge",
         "get_knowledge",
+        "record_knowledge",
         "get_stats",
     ]
     assert "知识沉淀完成" in written.content[0].text
