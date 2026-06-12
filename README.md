@@ -19,7 +19,7 @@
 - 写入前自动备份已有知识库文件
 - 默认预览不写入，真实写入必须显式确认
 - 配置加载会校验数据源、分析粒度、内容优先级、布尔环境变量和输出路径
-- 提供 MCP Server：`mine_knowledge`、`get_knowledge`、`record_knowledge`、`get_stats`
+- 提供 MCP Server：知识沉淀、知识读取、飞书授权引导、飞书文档配置和统计工具
 
 Cursor、Windsurf 专用日志解析和定时任务是后续扩展方向，目前不是已完成能力。
 
@@ -144,14 +144,35 @@ python -m venv .venv
 
 ### 飞书云文档授权
 
-飞书云文档同步依赖用户本机的 `lark-cli`。公开使用时，每个用户都需要授权自己的飞书账号，并把自己的知识库文档 URL 配到 `KM_FEISHU_DOC_URL`。
+飞书云文档同步依赖用户本机的 `lark-cli`。公开使用时，每个用户都授权自己的飞书账号，并配置自己的知识库文档 URL；仓库不会内置作者的飞书文档。
+
+如果 agent 已接入本 MCP，可以直接走 MCP 工具授权，不需要用户手动记命令：
+
+1. agent 调用 `feishu_auth_status` 检查当前本机授权和文档配置。
+2. agent 调用 `start_feishu_auth`。
+3. MCP 返回飞书授权 URL 和本地二维码图片路径，agent 把 URL 或二维码展示给用户。
+4. 用户在浏览器中完成飞书授权。
+5. agent 调用 `complete_feishu_auth` 完成本机 `lark-cli` 授权落地。
+6. agent 调用 `set_feishu_doc` 预览用户自己的飞书文档 URL；确认无误后，再带 `confirm_write: true` 保存配置。
+
+`start_feishu_auth` 返回内容会包含类似：
+
+```text
+授权 URL:
+https://passport.feishu.cn/...
+
+二维码图片:
+/Users/you/.knowledge-miner/feishu-auth-qr.png
+```
+
+如果想手动完成授权，也可以直接使用 `lark-cli`：
 
 ```bash
 lark-cli auth status
 lark-cli auth login --scope "docx:document:readonly docx:document:write_only wiki:node:read wiki:space:read offline_access"
 ```
 
-授权成功后，MCP 才能通过 `record_knowledge` 把内容写入用户自己的飞书云文档。当前版本不会把作者的飞书文档作为默认目标。
+授权成功并配置文档后，MCP 才能通过 `record_knowledge` 把内容写入用户自己的飞书云文档。未传 `confirm_write: true` 时，`set_feishu_doc` 和 `record_knowledge` 都只返回预览，不会修改配置或写入文档。
 
 ## MCP 工具
 
@@ -160,6 +181,10 @@ lark-cli auth login --scope "docx:document:readonly docx:document:write_only wik
 | `mine_knowledge` | 从会话中提取知识并预览或写入知识库 | `days`, `source`, `dry_run`, `confirm_write` |
 | `get_knowledge` | 读取已沉淀的知识 | `section` |
 | `record_knowledge` | 让任意 agent 主动提交一条知识；确认后写入本地知识库，并可同步飞书云文档 | `record_type`, `title`, `summary`, `target`, `confirm_write` |
+| `feishu_auth_status` | 检查本机 `lark-cli` 授权状态和当前飞书文档配置 | 无 |
+| `start_feishu_auth` | 发起飞书授权，返回授权 URL 和二维码图片路径 | `scopes` |
+| `complete_feishu_auth` | 用户完成网页授权后，完成本机授权落地 | `device_code` |
+| `set_feishu_doc` | 配置当前用户自己的飞书知识库文档 URL；默认只预览 | `doc_url`, `dry_run`, `confirm_write` |
 | `get_stats` | 查看知识库统计 | 无 |
 
 `mine_knowledge` 默认不写入。真实写入必须传：
@@ -255,6 +280,7 @@ knowledge-miner 会读取本机 AI agent 会话目录，例如 `~/.claude/projec
 - CLI `mine` 默认只预览，不写入；真实写入必须加 `--yes`
 - MCP `mine_knowledge` 默认只预览，不写入；真实写入必须传 `confirm_write: true`
 - MCP `record_knowledge` 默认只预览，不写入；真实写入本地或飞书也必须传 `confirm_write: true`
+- MCP `set_feishu_doc` 默认只预览，不修改本地配置；保存用户自己的飞书文档必须传 `confirm_write: true`
 - 接入前可运行 `knowledge-miner doctor --mcp-smoke` 验证 stdio MCP 握手和工具列表
 - 接入前可运行 `knowledge-miner doctor --acceptance` 用临时数据验证 MCP 端到端写入链路
 - 写入已有知识库前会先生成 `.bak` 备份文件

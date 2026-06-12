@@ -320,7 +320,16 @@ def _run_mcp_smoke_check() -> tuple[bool, str]:
                 tools = await session.list_tools()
 
         tool_names = [tool.name for tool in tools.tools]
-        expected = ["mine_knowledge", "get_knowledge", "record_knowledge", "get_stats"]
+        expected = [
+            "mine_knowledge",
+            "get_knowledge",
+            "record_knowledge",
+            "feishu_auth_status",
+            "start_feishu_auth",
+            "complete_feishu_auth",
+            "set_feishu_doc",
+            "get_stats",
+        ]
         missing = [name for name in expected if name not in tool_names]
         if missing:
             return False, f"缺少工具: {', '.join(missing)}"
@@ -389,7 +398,16 @@ def _run_mcp_acceptance_check() -> tuple[bool, str]:
                     await session.initialize()
                     tools = await session.list_tools()
                     tool_names = [tool.name for tool in tools.tools]
-                    expected = ["mine_knowledge", "get_knowledge", "record_knowledge", "get_stats"]
+                    expected = [
+                        "mine_knowledge",
+                        "get_knowledge",
+                        "record_knowledge",
+                        "feishu_auth_status",
+                        "start_feishu_auth",
+                        "complete_feishu_auth",
+                        "set_feishu_doc",
+                        "get_stats",
+                    ]
                     missing = [name for name in expected if name not in tool_names]
                     if missing:
                         return False, f"缺少工具: {', '.join(missing)}"

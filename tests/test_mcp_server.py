@@ -1,8 +1,10 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from knowledge_miner import mcp_server
 from knowledge_miner.config import KnowledgeMinerConfig, set_config
 from knowledge_miner.mcp_server import call_tool, list_tools
 
@@ -52,6 +54,10 @@ async def test_mcp_lists_expected_tools() -> None:
         "mine_knowledge",
         "get_knowledge",
         "record_knowledge",
+        "feishu_auth_status",
+        "start_feishu_auth",
+        "complete_feishu_auth",
+        "set_feishu_doc",
         "get_stats",
     ]
     mine_tool = result.tools[0]
@@ -65,6 +71,115 @@ async def test_mcp_unknown_tool_returns_error() -> None:
 
     assert result.isError is True
     assert "未知工具" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_mcp_feishu_auth_status_reports_cli_and_config(monkeypatch) -> None:
+    set_config(
+        KnowledgeMinerConfig(
+            feishu_enabled=True,
+            feishu_doc_url="https://example.feishu.cn/wiki/node",
+        )
+    )
+
+    class FakeFeishuAuthManager:
+        def status(self) -> dict[str, object]:
+            return {"authenticated": True, "user": "tester"}
+
+    monkeypatch.setattr(mcp_server, "FeishuAuthManager", FakeFeishuAuthManager)
+
+    result = await call_tool("feishu_auth_status", {})
+
+    payload = json.loads(result.content[0].text)
+    assert result.isError is False
+    assert payload["auth"]["authenticated"] is True
+    assert payload["configured"]["feishu_enabled"] is True
+    assert payload["configured"]["feishu_doc_url"] == "https://example.feishu.cn/wiki/node"
+
+
+@pytest.mark.asyncio
+async def test_mcp_start_feishu_auth_returns_url_and_qr(monkeypatch, tmp_path: Path) -> None:
+    qrcode_path = tmp_path / "feishu-auth-qr.png"
+
+    class FakeFeishuAuthManager:
+        def start(self, scopes: str):
+            return SimpleNamespace(
+                verification_url="https://passport.feishu.cn/device",
+                qrcode_path=qrcode_path,
+                expires_in=600,
+                scopes=scopes,
+            )
+
+    monkeypatch.setattr(mcp_server, "FeishuAuthManager", FakeFeishuAuthManager)
+
+    result = await call_tool("start_feishu_auth", {"scopes": "docx:document:write_only"})
+
+    assert result.isError is False
+    assert "https://passport.feishu.cn/device" in result.content[0].text
+    assert str(qrcode_path) in result.content[0].text
+    assert f"![Feishu auth QR]({qrcode_path})" in result.content[0].text
+    assert "complete_feishu_auth" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_mcp_complete_feishu_auth_finishes_pending_flow(monkeypatch) -> None:
+    calls: list[str | None] = []
+
+    class FakeFeishuAuthManager:
+        def complete(self, device_code: str | None = None) -> dict[str, object]:
+            calls.append(device_code)
+            return {"ok": True}
+
+    monkeypatch.setattr(mcp_server, "FeishuAuthManager", FakeFeishuAuthManager)
+
+    result = await call_tool("complete_feishu_auth", {"device_code": "device-123"})
+
+    assert result.isError is False
+    assert calls == ["device-123"]
+    assert '"ok": true' in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_mcp_set_feishu_doc_defaults_to_preview(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / ".knowledge-miner" / "config.json"
+    set_config(KnowledgeMinerConfig(output_path=tmp_path / "knowledge-base.json"))
+    monkeypatch.setattr(mcp_server, "_config_file_path", lambda: config_path)
+
+    result = await call_tool(
+        "set_feishu_doc",
+        {"doc_url": "https://example.feishu.cn/wiki/node"},
+    )
+
+    assert result.isError is False
+    assert "未提供 confirm_write=true" in result.content[0].text
+    assert not config_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_mcp_set_feishu_doc_confirm_write_saves_config(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / ".knowledge-miner" / "config.json"
+    set_config(KnowledgeMinerConfig(output_path=tmp_path / "knowledge-base.json"))
+    monkeypatch.setattr(mcp_server, "_config_file_path", lambda: config_path)
+
+    result = await call_tool(
+        "set_feishu_doc",
+        {
+            "doc_url": "https://example.feishu.cn/wiki/node",
+            "confirm_write": True,
+        },
+    )
+
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    assert result.isError is False
+    assert "飞书文档已配置" in result.content[0].text
+    assert payload["feishu-enabled"] is True
+    assert payload["feishu-doc-url"] == "https://example.feishu.cn/wiki/node"
 
 
 @pytest.mark.asyncio

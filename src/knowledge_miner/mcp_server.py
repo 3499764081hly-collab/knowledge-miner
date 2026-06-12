@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from mcp.server import Server
@@ -14,7 +15,8 @@ from mcp.types import (
     Tool,
 )
 
-from knowledge_miner.config import get_config
+from knowledge_miner.config import get_config, set_config
+from knowledge_miner.feishu_auth import DEFAULT_FEISHU_SCOPES, FeishuAuthManager
 from knowledge_miner.miner import mine_knowledge
 from knowledge_miner.output.ai_knowledge_base import extract_agent_view
 from knowledge_miner.output.feishu_doc import FeishuDocWriter
@@ -154,6 +156,71 @@ async def list_tools() -> ListToolsResult:
                 },
             ),
             Tool(
+                name="feishu_auth_status",
+                description="检查本机 lark-cli 飞书用户授权状态，并显示当前配置的飞书文档。",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False,
+                },
+            ),
+            Tool(
+                name="start_feishu_auth",
+                description="发起飞书用户授权，返回授权 URL 和二维码图片路径供 agent 展示给用户。",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "scopes": {
+                            "type": "string",
+                            "description": "要申请的飞书 scope；默认申请文档读写和 wiki 读取权限",
+                            "default": DEFAULT_FEISHU_SCOPES,
+                        }
+                    },
+                    "additionalProperties": False,
+                },
+            ),
+            Tool(
+                name="complete_feishu_auth",
+                description="用户完成飞书网页授权后，完成本机 lark-cli 授权落地。",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "device_code": {
+                            "type": "string",
+                            "description": "可选；默认读取 start_feishu_auth 缓存的待完成授权",
+                        }
+                    },
+                    "additionalProperties": False,
+                },
+            ),
+            Tool(
+                name="set_feishu_doc",
+                description=(
+                    "设置当前用户自己的飞书知识库文档 URL。默认只预览，确认后写入本地配置。"
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "doc_url": {
+                            "type": "string",
+                            "description": "飞书 Docx/Wiki 文档 URL 或 token",
+                        },
+                        "dry_run": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": "只预览，不修改本地配置",
+                        },
+                        "confirm_write": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": "确认写入 ~/.knowledge-miner/config.json",
+                        },
+                    },
+                    "required": ["doc_url"],
+                    "additionalProperties": False,
+                },
+            ),
+            Tool(
                 name="get_stats",
                 description="查看知识库的统计信息，包括数据源、会话数、消息数等。",
                 inputSchema={
@@ -176,6 +243,14 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
             return await _handle_get_knowledge(arguments)
         elif name == "record_knowledge":
             return await _handle_record_knowledge(arguments)
+        elif name == "feishu_auth_status":
+            return await _handle_feishu_auth_status(arguments)
+        elif name == "start_feishu_auth":
+            return await _handle_start_feishu_auth(arguments)
+        elif name == "complete_feishu_auth":
+            return await _handle_complete_feishu_auth(arguments)
+        elif name == "set_feishu_doc":
+            return await _handle_set_feishu_doc(arguments)
         elif name == "get_stats":
             return await _handle_get_stats(arguments)
         else:
@@ -428,6 +503,109 @@ async def _handle_record_knowledge(arguments: dict[str, Any]) -> CallToolResult:
     )
 
 
+async def _handle_feishu_auth_status(arguments: dict[str, Any]) -> CallToolResult:
+    if arguments:
+        return _tool_error("feishu_auth_status 不接受任何参数")
+    config = get_config()
+    payload = FeishuAuthManager().status()
+    result = {
+        "auth": payload,
+        "configured": {
+            "feishu_enabled": config.feishu_enabled,
+            "feishu_doc_url": config.feishu_doc_url,
+        },
+    }
+    return CallToolResult(
+        content=[
+            TextContent(
+                type="text",
+                text=json.dumps(result, indent=2, ensure_ascii=False, default=str),
+            )
+        ]
+    )
+
+
+async def _handle_start_feishu_auth(arguments: dict[str, Any]) -> CallToolResult:
+    parsed = _parse_start_feishu_auth_arguments(arguments)
+    if isinstance(parsed, CallToolResult):
+        return parsed
+    auth = FeishuAuthManager().start(scopes=parsed)
+    result = {
+        "verification_url": auth.verification_url,
+        "qrcode_path": str(auth.qrcode_path),
+        "expires_in": auth.expires_in,
+        "scopes": auth.scopes,
+        "next_step": "用户完成授权后，调用 complete_feishu_auth。",
+    }
+    text = (
+        "请打开下面的飞书授权 URL，或扫描二维码完成授权。\n\n"
+        f"授权 URL:\n{auth.verification_url}\n\n"
+        f"二维码图片:\n{auth.qrcode_path}\n\n"
+        f"![Feishu auth QR]({auth.qrcode_path})\n\n"
+        "授权完成后，请让 agent 调用 complete_feishu_auth。"
+        "\n\n"
+        f"{json.dumps(result, indent=2, ensure_ascii=False, default=str)}"
+    )
+    return CallToolResult(content=[TextContent(type="text", text=text)])
+
+
+async def _handle_complete_feishu_auth(arguments: dict[str, Any]) -> CallToolResult:
+    parsed = _parse_complete_feishu_auth_arguments(arguments)
+    if isinstance(parsed, CallToolResult):
+        return parsed
+    payload = FeishuAuthManager().complete(device_code=parsed)
+    return CallToolResult(
+        content=[
+            TextContent(
+                type="text",
+                text="✅ 飞书授权已完成：\n"
+                f"{json.dumps(payload, indent=2, ensure_ascii=False, default=str)}",
+            )
+        ]
+    )
+
+
+async def _handle_set_feishu_doc(arguments: dict[str, Any]) -> CallToolResult:
+    parsed = _parse_set_feishu_doc_arguments(arguments)
+    if isinstance(parsed, CallToolResult):
+        return parsed
+    doc_url, dry_run, confirm_write = parsed
+    preview = {
+        "will_write": False,
+        "config_path": str(_config_file_path()),
+        "feishu_enabled": True,
+        "feishu_doc_url": doc_url,
+    }
+    if dry_run or not confirm_write:
+        reason = (
+            "dry-run 预览，未修改本地配置"
+            if dry_run
+            else "未提供 confirm_write=true，已返回预览且未修改本地配置"
+        )
+        return CallToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=f"{reason}：\n{json.dumps(preview, indent=2, ensure_ascii=False)}",
+                )
+            ]
+        )
+
+    config = get_config()
+    config.feishu_enabled = True
+    config.feishu_doc_url = doc_url
+    config.save(_config_file_path())
+    set_config(config)
+    return CallToolResult(
+        content=[
+            TextContent(
+                type="text",
+                text=f"✅ 飞书文档已配置: {doc_url}\n配置文件: {_config_file_path()}",
+            )
+        ]
+    )
+
+
 async def run_server(transport: str = "stdio") -> None:
     """运行 MCP Server"""
     if transport == "stdio":
@@ -540,6 +718,49 @@ def _parse_record_arguments(
     return record, target, dry_run, confirm_write
 
 
+def _parse_start_feishu_auth_arguments(arguments: dict[str, Any]) -> str | CallToolResult:
+    allowed_keys = {"scopes"}
+    unknown_keys = set(arguments) - allowed_keys
+    if unknown_keys:
+        return _tool_error(f"未知参数: {', '.join(sorted(unknown_keys))}")
+    scopes = arguments.get("scopes", DEFAULT_FEISHU_SCOPES)
+    if not isinstance(scopes, str) or not scopes.strip():
+        return _tool_error("参数 scopes 必须是非空字符串")
+    return scopes.strip()
+
+
+def _parse_complete_feishu_auth_arguments(
+    arguments: dict[str, Any],
+) -> str | None | CallToolResult:
+    allowed_keys = {"device_code"}
+    unknown_keys = set(arguments) - allowed_keys
+    if unknown_keys:
+        return _tool_error(f"未知参数: {', '.join(sorted(unknown_keys))}")
+    device_code = arguments.get("device_code")
+    if device_code is not None and (not isinstance(device_code, str) or not device_code.strip()):
+        return _tool_error("参数 device_code 必须是非空字符串")
+    return device_code.strip() if isinstance(device_code, str) else None
+
+
+def _parse_set_feishu_doc_arguments(
+    arguments: dict[str, Any],
+) -> tuple[str, bool, bool] | CallToolResult:
+    allowed_keys = {"doc_url", "dry_run", "confirm_write"}
+    unknown_keys = set(arguments) - allowed_keys
+    if unknown_keys:
+        return _tool_error(f"未知参数: {', '.join(sorted(unknown_keys))}")
+    doc_url = arguments.get("doc_url")
+    if not isinstance(doc_url, str) or not doc_url.strip():
+        return _tool_error("参数 doc_url 不能为空")
+    dry_run = arguments.get("dry_run", False)
+    if not isinstance(dry_run, bool):
+        return _tool_error("参数 dry_run 必须是布尔值 true 或 false")
+    confirm_write = arguments.get("confirm_write", False)
+    if not isinstance(confirm_write, bool):
+        return _tool_error("参数 confirm_write 必须是布尔值 true 或 false")
+    return doc_url.strip(), dry_run, confirm_write
+
+
 def _resolve_record_targets(target: str, config: Any) -> list[str]:
     if target == "local":
         return ["local"]
@@ -549,6 +770,10 @@ def _resolve_record_targets(target: str, config: Any) -> list[str]:
     if config.feishu_enabled and (config.feishu_doc_url or config.feishu_node_token):
         targets.append("feishu")
     return targets
+
+
+def _config_file_path() -> Path:
+    return Path.home() / ".knowledge-miner" / "config.json"
 
 
 def _tool_error(message: str) -> CallToolResult:

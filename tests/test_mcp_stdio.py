@@ -74,6 +74,10 @@ async def test_mcp_stdio_session_lists_tools_and_respects_confirm_write(
         "mine_knowledge",
         "get_knowledge",
         "record_knowledge",
+        "feishu_auth_status",
+        "start_feishu_auth",
+        "complete_feishu_auth",
+        "set_feishu_doc",
         "get_stats",
     ]
     assert "知识沉淀完成" in written.content[0].text
