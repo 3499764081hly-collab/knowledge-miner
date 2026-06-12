@@ -122,6 +122,38 @@ async def test_mcp_start_feishu_auth_returns_url_and_qr(monkeypatch, tmp_path: P
 
 
 @pytest.mark.asyncio
+async def test_mcp_start_feishu_auth_returns_setup_url_when_lark_cli_is_unconfigured(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    qrcode_path = tmp_path / "feishu-setup-qr.png"
+    log_path = tmp_path / "feishu-setup.log"
+
+    class FakeFeishuAuthManager:
+        def start(self, scopes: str):
+            raise RuntimeError('{"error": {"subtype": "not_configured"}}')
+
+        def start_setup(self):
+            return SimpleNamespace(
+                setup_url="https://open.feishu.cn/page/cli?user_code=ABCD-EFGH",
+                qrcode_path=qrcode_path,
+                log_path=log_path,
+                pid=12345,
+            )
+
+    monkeypatch.setattr(mcp_server, "FeishuAuthManager", FakeFeishuAuthManager)
+
+    result = await call_tool("start_feishu_auth", {})
+
+    assert result.isError is False
+    assert "lark-cli 尚未完成首次配置" in result.content[0].text
+    assert "https://open.feishu.cn/page/cli?user_code=ABCD-EFGH" in result.content[0].text
+    assert str(qrcode_path) in result.content[0].text
+    assert f"![Feishu CLI setup QR]({qrcode_path})" in result.content[0].text
+    assert "再次调用 start_feishu_auth" in result.content[0].text
+
+
+@pytest.mark.asyncio
 async def test_mcp_complete_feishu_auth_finishes_pending_flow(monkeypatch) -> None:
     calls: list[str | None] = []
 

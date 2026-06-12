@@ -150,12 +150,23 @@ python -m venv .venv
 
 1. agent 调用 `feishu_auth_status` 检查当前本机授权和文档配置。
 2. agent 调用 `start_feishu_auth`。
-3. MCP 返回飞书授权 URL 和本地二维码图片路径，agent 把 URL 或二维码展示给用户。
-4. 用户在浏览器中完成飞书授权。
-5. agent 调用 `complete_feishu_auth` 完成本机 `lark-cli` 授权落地。
-6. agent 调用 `set_feishu_doc` 预览用户自己的飞书文档 URL；确认无误后，再带 `confirm_write: true` 保存配置。
+3. 如果用户本机还没有初始化过 `lark-cli`，MCP 会先返回飞书 CLI 配置 URL 和二维码图片路径；agent 展示给用户，用户完成配置后，agent 再次调用 `start_feishu_auth`。
+4. MCP 返回飞书用户授权 URL 和本地二维码图片路径，agent 把 URL 或二维码展示给用户。
+5. 用户在浏览器中完成飞书授权。
+6. agent 调用 `complete_feishu_auth` 完成本机 `lark-cli` 授权落地。
+7. agent 调用 `set_feishu_doc` 预览用户自己的飞书文档 URL；确认无误后，再带 `confirm_write: true` 保存配置。
 
-`start_feishu_auth` 返回内容会包含类似：
+首次配置时，`start_feishu_auth` 返回内容会包含类似：
+
+```text
+配置 URL:
+https://open.feishu.cn/page/cli?...
+
+二维码图片:
+/Users/you/.knowledge-miner/feishu-setup-qr.png
+```
+
+完成配置后再次调用 `start_feishu_auth`，返回内容会包含类似：
 
 ```text
 授权 URL:

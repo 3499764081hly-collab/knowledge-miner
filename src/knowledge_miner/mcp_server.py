@@ -16,7 +16,11 @@ from mcp.types import (
 )
 
 from knowledge_miner.config import get_config, set_config
-from knowledge_miner.feishu_auth import DEFAULT_FEISHU_SCOPES, FeishuAuthManager
+from knowledge_miner.feishu_auth import (
+    DEFAULT_FEISHU_SCOPES,
+    FeishuAuthManager,
+    is_lark_cli_not_configured,
+)
 from knowledge_miner.miner import mine_knowledge
 from knowledge_miner.output.ai_knowledge_base import extract_agent_view
 from knowledge_miner.output.feishu_doc import FeishuDocWriter
@@ -529,7 +533,13 @@ async def _handle_start_feishu_auth(arguments: dict[str, Any]) -> CallToolResult
     parsed = _parse_start_feishu_auth_arguments(arguments)
     if isinstance(parsed, CallToolResult):
         return parsed
-    auth = FeishuAuthManager().start(scopes=parsed)
+    manager = FeishuAuthManager()
+    try:
+        auth = manager.start(scopes=parsed)
+    except RuntimeError as exc:
+        if is_lark_cli_not_configured(exc):
+            return _handle_feishu_setup_required(manager)
+        raise
     result = {
         "verification_url": auth.verification_url,
         "qrcode_path": str(auth.qrcode_path),
@@ -543,6 +553,28 @@ async def _handle_start_feishu_auth(arguments: dict[str, Any]) -> CallToolResult
         f"二维码图片:\n{auth.qrcode_path}\n\n"
         f"![Feishu auth QR]({auth.qrcode_path})\n\n"
         "授权完成后，请让 agent 调用 complete_feishu_auth。"
+        "\n\n"
+        f"{json.dumps(result, indent=2, ensure_ascii=False, default=str)}"
+    )
+    return CallToolResult(content=[TextContent(type="text", text=text)])
+
+
+def _handle_feishu_setup_required(manager: FeishuAuthManager) -> CallToolResult:
+    setup = manager.start_setup()
+    result = {
+        "setup_url": setup.setup_url,
+        "qrcode_path": str(setup.qrcode_path),
+        "log_path": str(setup.log_path),
+        "pid": setup.pid,
+        "next_step": "用户完成飞书 CLI 配置后，再调用 start_feishu_auth 获取用户授权 URL。",
+    }
+    text = (
+        "当前本机 lark-cli 尚未完成首次配置。请先打开下面的飞书 CLI 配置 URL，"
+        "或扫描二维码完成配置。\n\n"
+        f"配置 URL:\n{setup.setup_url}\n\n"
+        f"二维码图片:\n{setup.qrcode_path}\n\n"
+        f"![Feishu CLI setup QR]({setup.qrcode_path})\n\n"
+        "配置完成后，请让 agent 再次调用 start_feishu_auth，届时会返回用户授权 URL 和二维码。"
         "\n\n"
         f"{json.dumps(result, indent=2, ensure_ascii=False, default=str)}"
     )
