@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "knowledge-miner"
+version = "0.1.0"
+description = "从 AI agent 聊天记录中沉淀个人知识库"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Zhuanz1" }
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "mcp>=1.0.0",
+    "pydantic>=2.0.0",
+    "python-dateutil>=2.8.0",
+    "rich>=13.0.0",
+    "tqdm>=4.65.0",
+]
+
+[project.optional-dependencies]
+feishu = [
+    "lark-cli>=1.0.51",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.23.0",
+    "build>=1.0.0",
+    "hatchling>=1.20.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+knowledge-miner = "knowledge_miner.cli:main"
+knowledge-mine = "knowledge_miner.cli:main"
+
+[project.entry-points."mcp_servers"]
+knowledge-miner = "knowledge_miner.mcp_server:server"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/knowledge_miner"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]

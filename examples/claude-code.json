@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "knowledge-miner": {
+      "command": "/Users/Zhuanz1/Desktop/knowledge-miner/.venv/bin/knowledge-miner",
+      "args": ["mcp-server"],
+      "env": {
+        "KM_DATA_SOURCES": "claude,hermes",
+        "KM_OUTPUT_PATH": "/Users/Zhuanz1/Desktop/AI-Knowledge-Base/knowledge-base.json"
+      }
+    }
+  }
+}
